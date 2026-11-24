@@ -311,7 +311,7 @@ if(/AppData\/Local\/Temp/i.test(location.href)){
     </nav>
     <a class="factory hidden" id="factoryBtn" href="#" target="_blank" rel="noopener">🏭 مصنع الكرييتف ↗</a>
     <a href="#" id="lockBtn" class="hidden" onclick="lockNow();return false" style="display:flex;align-items:center;gap:10px;padding:11px 13px;border-radius:10px;margin-top:8px;color:var(--mut);font-size:14px;text-decoration:none;border:1px solid var(--line)">🔒 قفل اللوحة</a>
-    <div class="foot">قافلة v3.19 — نسخة محلية<br>بياناتك محفوظة على جهازك فقط</div>
+    <div class="foot">قافلة v3.20 — نسخة محلية<br>بياناتك محفوظة على جهازك فقط</div>
   </aside>
   <main>
     <div class="proto-note">🧪 <b>نسخة تجريبية محلية</b> — قافلة دلوقتي للتجربة والاختبار على جهازك فقط، ومش رابط شراء جاهز تبعته للعملاء. استخدم بيانات تجريبية فقط (مش أرقام عملاء حقيقيين) لحد ما يتبني سيرفر حقيقي مع مراجعة خصوصية واختبار على أكتر من جهاز.</div>
@@ -343,7 +343,7 @@ if(/AppData\/Local\/Temp/i.test(location.href)){
 "use strict";
 /* ================= البيانات ================= */
 const KEY='qafila.v1';
-const APP_VERSION='3.19';
+const APP_VERSION='3.20';
 const UPDATE_PAGE='https://files.instinct.com/iq2gaocdi8p9-v1';
 const STATUSES={
   new:'جديد', confirmed:'تم التأكيد', noanswer:'لا يرد',
@@ -1991,8 +1991,112 @@ function copilotData(){
   const tops=Object.entries(byProd).sort((a,b)=>b[1]-a[1]);
   if(tops.length&&tops[0][1]>0) ins.push({icon:'⭐',t:`أفضل منتج الشهر ده بصافي التسليم: «${tops[0][0]}» (${fmt(tops[0][1])} ${DB.settings.currency}) — يستاهل ميزانية إعلانات أكبر`,go:'#/ads',btn:'وزّع الميزانية'});
   if(best) ins.push({icon:'🟢',t:`أقوى حملة شغالة: «${best.k}» — صافي ${fmt(best.net)} ${DB.settings.currency} ورفض ${best.rate}% بس. حافظ عليها`,go:'#/ads',btn:'شوفها'});
+  anomalies().forEach(a=>ins.push(a));
   return {brief,ins,lowConf,hasData:orders.length>0};
 }
+/* ==== v3.20: كشف الشذوذ اليومي + أسئلة مقيدة ==== */
+function anomalies(){
+  const dayMs=864e5;
+  const t0=new Date(); t0.setHours(0,0,0,0);
+  const start=t0.getTime()-14*dayMs;
+  const orders=DB.orders.filter(o=>!o.gen&&o.ts>=start&&o.ts<t0.getTime());
+  const days=[...Array(14)].map((_,i)=>({s:start+i*dayMs,n:0,net:0,closed:0,ret:0}));
+  orders.forEach(o=>{
+    const d=days[Math.floor((o.ts-start)/dayMs)]; if(!d) return;
+    d.n++;
+    if(o.status==='delivered'){ const x=orderNet(o); if(x.net!=null) d.net+=x.net; }
+    if(o.status==='delivered'||o.status==='returned'){ d.closed++; if(o.status==='returned') d.ret++; }
+  });
+  if(days.filter(d=>d.n>0).length<8) return [];
+  const dayName=ts=>new Date(ts).toLocaleDateString('ar-EG',{weekday:'long',day:'numeric',month:'long'});
+  const spike=vals=>{
+    const m=vals.reduce((a,x)=>a+x,0)/vals.length;
+    const sd=Math.sqrt(vals.reduce((a,x)=>a+(x-m)*(x-m),0)/vals.length);
+    if(sd===0) return {i:-1,m};
+    let bi=-1,bz=2;
+    vals.forEach((v,i)=>{ const z=(v-m)/sd; if(z>bz){bz=z;bi=i;} });
+    return {i:bi,m};
+  };
+  const alerts=[];
+  const cnt=spike(days.map(d=>d.n));
+  if(cnt.i>=0&&days[cnt.i].n>=5) alerts.push({icon:'📈',t:`يوم ${dayName(days[cnt.i].s)} كان شاذ: ${days[cnt.i].n} أوردر مقابل متوسط ${Math.round(cnt.m)} في آخر ١٤ يوم — راجع سبب الطفرة (حملة؟ فيديو ترند؟)`,go:'#/analytics',btn:'التحليلات'});
+  const net=spike(days.map(d=>Math.round(d.net*100)/100));
+  if(net.i>=0&&days[net.i].net>=100) alerts.push({icon:'💰',t:`يوم ${dayName(days[net.i].s)} صافي التسليم كان شاذ: ${fmt(Math.round(days[net.i].net*100)/100)} — أعلى بشكل غير معتاد عن متوسط آخر ١٤ يوم (${fmt(Math.round(net.m*100)/100)})`,go:'#/',btn:'الرئيسية'});
+  const rdays=days.filter(d=>d.closed>=3);
+  if(rdays.length>=8){
+    const r=spike(rdays.map(d=>d.ret/d.closed));
+    if(r.i>=0){ const d=rdays[r.i];
+      alerts.push({icon:'⚠️',t:`يوم ${dayName(d.s)} نسبة الرفض كانت شاذة: ${Math.round(d.ret/d.closed*100)}% (${d.ret} مرتجع من ${d.closed} مقفول) مقابل متوسط ${Math.round(r.m*100)}% — راجع المنتجات والمناطق اللي اترفضت`,go:'#/analytics',btn:'أنماط الرفض'}); }
+  }
+  return alerts;
+}
+function answerQuestion(key){
+  const dayMs=864e5, now=Date.now(), cur=DB.settings.currency;
+  const orders=DB.orders.filter(o=>!o.gen);
+  const m30=orders.filter(o=>o.ts>=now-30*dayMs);
+  const low=orders.length<10;
+  const R=(text,n,account)=>{ return {text, src:`المصدر: ${n} أوردر في آخر ٣٠ يوم — الحساب: ${account}`, low}; };
+  if(key==='losing'){
+    const by={};
+    m30.forEach(o=>{ const b=orderNet(o); if(b.net==null) return;
+      if(!by[o.product]) by[o.product]={net:0,n:0,ret:0};
+      by[o.product].net=Math.round((by[o.product].net+b.net)*100)/100; by[o.product].n++;
+      if(o.status==='returned') by[o.product].ret++; });
+    const rows=Object.entries(by).filter(([,v])=>v.n>=3).sort((a,b)=>a[1].net-b[1].net);
+    if(!rows.length) return R('لسه مفيش بيانات كفاية — محتاج ٣+ أوردرات مقفولة (تسليم أو مرتجع) لكل منتج عشان أحكم.',m30.length,'صافي التسليم لكل منتج');
+    const [name,v]=rows[0];
+    if(v.net>=0) return R(`مفيش منتج خاسر بعد التسليم 💚 أقل منتج ربحًا هو «${name}» بصافي ${fmt(v.net)} من ${v.n} أوردر مقفول.`,m30.length,'صافي التسليم لكل منتج (مبيعات − تكلفة − شحن − عمولة − رسوم مرتجعات)');
+    return R(`«${name}» بيخسر فعليًا: صافي ${fmt(v.net)} من ${v.n} أوردر مقفول آخر ٣٠ يوم${v.ret?` — ${v.ret} مرتجع بياكلوا رسوم الشحن`:''}. راجع التكلفة أو سعر البيع، أو وقّف إعلانه لحد ما تظبط العرض.`,m30.length,'صافي التسليم لكل منتج (مبيعات − تكلفة − شحن − عمولة − رسوم مرتجعات)');
+  }
+  if(key==='fastest'){
+    const stats=courierStats().filter(c=>c.avgDays!=null&&c.delivered>=3);
+    if(!stats.length) return R('لسه مفيش قياس كفاية للسرعة — محتاج شركات شحن عندها ٣+ توصيلات بوقت تسليم مسجل.',orders.filter(o=>o.courier).length,'متوسط أيام التسليم من وقت الأوردر لوقت التسليم');
+    const s2=[...stats].sort((a,b)=>a.avgDays-b.avgDays)[0];
+    return R(`«${s2.name}» أسرع شركة شحن عندك: متوسط ${s2.avgDays} يوم للتوصيل من ${s2.delivered} شحنة مسلَّمة، ونسبة تسليمها ${s2.rate==null?'—':s2.rate+'%'}.`,orders.filter(o=>o.courier).length,'متوسط أيام التسليم لكل شركة (من سجل التوصيلات)');
+  }
+  if(key==='campaign'){
+    const groups={};
+    m30.forEach(o=>{ const k=adKeyOf(o); (groups[k]=groups[k]||[]).push(o); });
+    const rows=[];
+    for(const k in groups){
+      if(k==='بدون تتبع') continue;
+      const g=groups[k], closed=g.filter(o=>o.status==='delivered'||o.status==='returned');
+      if(closed.length<3) continue;
+      let net=0;
+      g.filter(o=>o.status==='delivered').forEach(o=>{const n=orderNet(o); if(n.net!=null) net+=n.net;});
+      net=Math.round((net-(Number((DB.settings.adSpend||{})[k])||0))*100)/100;
+      rows.push([k,net,closed.length]);
+    }
+    if(!rows.length) return R('مفيش حملات متتبعة بعينة كفاية (٣+ أوردرات مقفولة) آخر ٣٠ يوم — تأكد إن UTM الكرييتف متسجل في الأوردرات.',m30.length,'صافي الحملة = صافي تسليم − إنفاقها المسجل');
+    rows.sort((a,b)=>b[1]-a[1]);
+    const best=rows[0], worst=rows[rows.length-1];
+    let t=`أربح حملة: «${best[0]}» بصافي ${fmt(best[1])} من ${best[2]} أوردر مقفول.`;
+    if(rows.length>1) t+= worst[1]<0 ? ` وأخسرها: «${worst[0]}» بصافي ${fmt(worst[1])} — وقّفها أو راجع الاستهداف.` : ` وأضعفها: «${worst[0]}» (${fmt(worst[1])}) — ودي كمان في الموجب.`;
+    return R(t,m30.length,'صافي الحملة = صافي تسليم أوردراتها − إنفاقها المسجل في صفحة الإعلانات');
+  }
+  if(key==='bestprod'){
+    const m0=new Date(); m0.setDate(1); m0.setHours(0,0,0,0);
+    const by={};
+    orders.filter(o=>o.status==='delivered'&&o.ts>=m0.getTime()).forEach(o=>{const n=orderNet(o); if(n.net==null) return; by[o.product]=Math.round(((by[o.product]||0)+n.net)*100)/100;});
+    const tops=Object.entries(by).sort((a,b)=>b[1]-a[1]);
+    const nMonth=orders.filter(o=>o.ts>=m0.getTime()).length;
+    if(!tops.length) return {text:'لسه مفيش مبيعات مسلَّمة الشهر ده.', src:`المصدر: ${nMonth} أوردر من أول الشهر`, low};
+    return {text:`أفضل منتج الشهر ده بصافي التسليم: «${tops[0][0]}» (${fmt(tops[0][1])})${tops.length>1?` — ويليه «${tops[1][0]}» (${fmt(tops[1][1])})`:''}. يستاهل ميزانية إعلانات أكبر.`, src:`المصدر: ${nMonth} أوردر من أول الشهر — الحساب: صافي تسليم لكل منتج`, low};
+  }
+  if(key==='cash'){
+    const un=orders.filter(o=>o.status==='delivered'&&!o.settled);
+    if(!un.length) return {text:'مفيش فلوس معلقة عند شركات الشحن — كل المسلَّم متسوّى 💚', src:'المصدر: سجل الأوردرات المسلَّمة', low};
+    const byC={};
+    un.forEach(o=>{ const c=o.courier||'غير محدد'; byC[c]=Math.round(((byC[c]||0)+expectedPayout(o).exp)*100)/100; });
+    const total=Math.round(un.reduce((a,o)=>a+expectedPayout(o).exp,0)*100)/100;
+    const parts=Object.entries(byC).sort((a,b)=>b[1]-a[1]).map(([c,a])=>`«${c}»: ${fmt(a)}`).join(' — ');
+    return {text:`حوالي ${fmt(total)} لسه عند شركات الشحن (${un.length} أوردر مسلَّم غير متسوّى): ${parts}. طابقها من صفحة مصالحة التحصيل.`, src:`المصدر: ${un.length} أوردر مسلَّم غير متسوّى — الحساب: المتوقع تحصيله لكل أوردر (الإجمالي − عمولة التحصيل − رسوم التسليم)، نفس حساب المصالحة`, low};
+  }
+  return {text:'سؤال غير معروف.',src:'',low:false};
+}
+let copilotQA=null;
+function askCopilot(k){ copilotQA={k,a:answerQuestion(k)}; route(); }
+
 function copilotCard(){
   const c=copilotData();
   if(!c.hasData) return '';
@@ -2001,6 +2105,14 @@ function copilotCard(){
   ${c.lowConf?' <span class="trust bad">ثقة منخفضة — بيانات أقل من ٧ أيام أو ١٠ أوردرات</span>':''}</div>
   <div style="font-size:15px;font-weight:700;margin-bottom:${c.ins.length?'10':'0'}px">${c.brief}</div>
   ${c.ins.map(i=>`<div style="display:flex;align-items:center;gap:12px;padding:9px 0;border-top:1px solid var(--line)"><span style="font-size:18px">${i.icon}</span><span style="flex:1;font-size:14px;line-height:1.8">${esc(i.t)}</span><a class="btn small ghost" href="${i.go}">${i.btn}</a></div>`).join('')}
+  <div style="margin-top:6px;border-top:1px solid var(--line);padding-top:10px">
+    <div class="mut" style="font-size:11px;margin-bottom:6px">اسأل المساعد — أسئلة مقيدة بقواعد ثابتة، وكل إجابة بتقول مصدرها وحسابها:</div>
+    <div class="chips">${[['losing','أنهي منتج بيخسر؟'],['fastest','أنهي شركة شحن أسرع؟'],['campaign','أنهي حملة كسبانة؟'],['bestprod','أفضل منتج الشهر؟'],['cash','قد إيه فلوس عند شركات الشحن؟']].map(([k,q])=>`<button class="chip ${copilotQA&&copilotQA.k===k?'active':''}" onclick="askCopilot('${k}')">${q}</button>`).join('')}</div>
+    ${copilotQA?`<div style="margin-top:8px;background:var(--panel2);border:1px solid var(--line);border-radius:10px;padding:10px 14px">
+      <div style="font-size:14px;line-height:1.9">${esc(copilotQA.a.text)}</div>
+      <div class="mut" style="font-size:11px;margin-top:6px">الحساب والمصدر: ${esc(copilotQA.a.src)}${copilotQA.a.low?' <span class="trust bad">ثقة منخفضة — بيانات قليلة</span>':''}</div>
+    </div>`:''}
+  </div>
   </div>`;
 }
 
