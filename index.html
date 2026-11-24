@@ -311,7 +311,7 @@ if(/AppData\/Local\/Temp/i.test(location.href)){
     </nav>
     <a class="factory hidden" id="factoryBtn" href="#" target="_blank" rel="noopener">🏭 مصنع الكرييتف ↗</a>
     <a href="#" id="lockBtn" class="hidden" onclick="lockNow();return false" style="display:flex;align-items:center;gap:10px;padding:11px 13px;border-radius:10px;margin-top:8px;color:var(--mut);font-size:14px;text-decoration:none;border:1px solid var(--line)">🔒 قفل اللوحة</a>
-    <div class="foot">قافلة v3.21 — نسخة محلية<br>بياناتك محفوظة على جهازك فقط</div>
+    <div class="foot">قافلة v3.22 — نسخة محلية<br>بياناتك محفوظة على جهازك فقط</div>
   </aside>
   <main>
     <div class="proto-note">🧪 <b>نسخة تجريبية محلية</b> — قافلة دلوقتي للتجربة والاختبار على جهازك فقط، ومش رابط شراء جاهز تبعته للعملاء. استخدم بيانات تجريبية فقط (مش أرقام عملاء حقيقيين) لحد ما يتبني سيرفر حقيقي مع مراجعة خصوصية واختبار على أكتر من جهاز.</div>
@@ -343,7 +343,7 @@ if(/AppData\/Local\/Temp/i.test(location.href)){
 "use strict";
 /* ================= البيانات ================= */
 const KEY='qafila.v1';
-const APP_VERSION='3.21';
+const APP_VERSION='3.22';
 const UPDATE_PAGE='https://files.instinct.com/iq2gaocdi8p9-v1';
 const STATUSES={
   new:'جديد', confirmed:'تم التأكيد', noanswer:'لا يرد',
@@ -2127,6 +2127,75 @@ function answerQuestion(key){
     const parts=Object.entries(byC).sort((a,b)=>b[1]-a[1]).map(([c,a])=>`«${c}»: ${fmt(a)}`).join(' — ');
     return {text:`حوالي ${fmt(total)} لسه عند شركات الشحن (${un.length} أوردر مسلَّم غير متسوّى): ${parts}. طابقها من صفحة مصالحة التحصيل.`, src:`المصدر: ${un.length} أوردر مسلَّم غير متسوّى — الحساب: المتوقع تحصيله لكل أوردر (الإجمالي − عمولة التحصيل − رسوم التسليم)، نفس حساب المصالحة`, low};
   }
+  if(key==='verdict'){
+    const groups={};
+    m30.forEach(o=>{ const k=adKeyOf(o); if(k==='بدون تتبع') return; (groups[k]=groups[k]||[]).push(o); });
+    const rows=[];
+    for(const k in groups){
+      const g=groups[k], closed=g.filter(o=>o.status==='delivered'||o.status==='returned');
+      if(closed.length<3) continue;
+      let revenue=0,cogs=0,fees=0;
+      g.forEach(o=>{
+        if(o.status==='delivered'){ revenue+=o.total; cogs+=orderCost(o); fees+=orderShip(o)+Math.round(o.total*orderFees(o).codPct)/100; }
+        else if(o.status==='returned'){ fees+=orderFees(o).shipRet; }
+      });
+      const nom=Math.round((revenue-cogs)*100)/100;
+      const net=Math.round((nom-fees-(Number((DB.settings.adSpend||{})[k])||0))*100)/100;
+      rows.push([k,nom,net,closed.length]);
+    }
+    if(!rows.length) return R('مفيش حملات متتبعة بعينة كفاية (٣+ أوردرات مقفولة) آخر ٣٠ يوم — سجّل UTM الكرييتف في روابط صفحات الهبوط.',m30.length,'نفس حساب صفحة الإعلانات: اسمي = مبيعات − تكلفة، صافي = اسمي − شحن وعمولات ومرتجعات − إنفاق');
+    rows.sort((a,b)=>b[2]-a[2]);
+    const mark=(nom,net)=>net>0?'🟢':(nom>0?'🟡':'🔴');
+    const parts=rows.map(([k,nom,net])=>`${mark(nom,net)} «${k}» (${fmt(net)})`).join(' — ');
+    const red=rows.filter(r=>r[2]<=0&&r[1]<=0).length, yellow=rows.filter(r=>r[2]<=0&&r[1]>0).length;
+    let t='حكم حملاتك آخر ٣٠ يوم: '+parts+'.';
+    if(red) t+=' الحمرا بتاكل من جيبك — وقّفها فورًا.';
+    else if(yellow) t+=' الصفرا رابحة على الورق بس — الرسوم والإنفاق بياكلوا الربح، راجع سعر الشحن أو الإنفاق.';
+    else t+=' كلها خضرا 💚';
+    return R(t,m30.length,'نفس حساب صفحة الإعلانات بالظبط: 🟢 صافي موجب، 🟡 اسمي موجب وصافي سالب، 🔴 خاسرة اسميًا');
+  }
+  if(key==='govcourier'){
+    const recs=courierRecommendations();
+    const closedC=orders.filter(o=>o.courier&&(o.status==='delivered'||o.status==='returned')).length;
+    if(!recs.length) return R('مفيش فجوة واضحة بين الشركات في أي محافظة لسه — محتاج شركتين مختلفتين بـ ٥+ أوردرات مقفولة لكل منهما في نفس المحافظة، وفجوة تسليم أكبر من ١٥٪.',closedC,'مقارنة نسب التسليم لكل شركة داخل كل محافظة (نفس محرك توصيات شركات الشحن)');
+    const top=recs.slice(0,2).map(r=>`في ${r.gov}: «${r.best}» بتسلّم ${r.bestRate}٪ مقابل ${r.worstRate}٪ لـ«${r.worst}» (فجوة ${r.gap}٪)`).join(' — ');
+    return R(top+'. جرّب تحويل شحنات المحافظة دي للأعلى تسليمًا.',closedC,'نسبة التسليم لكل شركة داخل كل محافظة من أوردراتك المقفولة (نفس محرك التوصيات)');
+  }
+  if(key==='rejreason'){
+    const ret=m30.filter(o=>o.status==='returned');
+    if(ret.length<3) return R('لسه مفيش مرتجعات كفاية آخر ٣٠ يوم (٣+ مرتجعات) عشان أطلّع نمط.',ret.length,'تجميع أسباب الرفض المسجلة على المرتجعات');
+    const reasons={};
+    ret.forEach(o=>{ const r=o.returnReason||'بدون سبب مسجل'; reasons[r]=(reasons[r]||0)+1; });
+    const top=Object.entries(reasons).sort((a,b)=>b[1]-a[1])[0];
+    const pct=Math.round(top[1]/ret.length*100);
+    const nospec=reasons['بدون سبب مسجل']||0;
+    let t=`أكتر سبب رفض آخر ٣٠ يوم: «${top[0]}» — ${top[1]} من ${ret.length} مرتجع (${pct}٪).`;
+    if(top[0]==='بدون سبب مسجل') t+=' سجّل سبب الرفض لكل مرتجع عشان التحليل يبقى مفيد.';
+    else t+=' لو السبب ده متعلق بالعنوان أو الرد، قوّي تأكيد الأوردرات قبل الشحن.';
+    if(nospec&&top[0]!=='بدون سبب مسجل') t+=` (${nospec} مرتجع لسه بدون سبب مسجل.)`;
+    return R(t,ret.length,'تجميع حقل سبب الرفض على أوردرات المرتجع آخر ٣٠ يوم');
+  }
+  if(key==='bigrej'){
+    const closed=orders.filter(o=>o.status==='delivered'||o.status==='returned');
+    const hi=closed.filter(o=>(+o.total)>=800), lo=closed.filter(o=>(+o.total)<800);
+    const rate=l=>{ const d=l.filter(o=>o.status==='delivered').length; return l.length?1-d/l.length:0; };
+    if(hi.length<5||lo.length<5) return R('محتاج ٥+ أوردرات مقفولة فوق ٨٠٠ و٥+ تحتها عشان أقارن — لسه العينة صغيرة.',closed.length,'مقارنة نسبة الرفض: أوردرات ≥ ٨٠٠ مقابل < ٨٠٠');
+    const rh=Math.round(rate(hi)*100), rl=Math.round(rate(lo)*100);
+    if(rh-rl>=10) return R(`أيوه — الأوردرات فوق ٨٠٠ جنيه بتترفض بنسبة ${rh}٪ مقابل ${rl}٪ للأصغر (${hi.length} مقابل ${lo.length} أوردر مقفول). فعّل التأكيد الهاتفي القوي أو فكرة العربون للطلبات الكبيرة.`,closed.length,'مقارنة نسبة الرفض: أوردرات ≥ ٨٠٠ مقابل < ٨٠٠ (نفس قاعدة تنبيه الأنماط)');
+    if(rl-rh>=10) return R(`لأ — بالعكس: الأوردرات الصغيرة (تحت ٨٠٠) هي اللي بتترفض أكتر بنسبة ${rl}٪ مقابل ${rh}٪ للكبيرة (${lo.length} مقابل ${hi.length} أوردر مقفول). الطلبات الكبيرة عندك سليمة 💚`,closed.length,'مقارنة نسبة الرفض: أوردرات ≥ ٨٠٠ مقابل < ٨٠٠ (نفس قاعدة تنبيه الأنماط)');
+    return R(`لأ — الرفض متقارب: ${rh}٪ للأوردرات فوق ٨٠٠ و${rl}٪ للأصغر (${hi.length} مقابل ${lo.length} أوردر مقفول). مفيش نزيف خاص بالطلبات الكبيرة دلوقتي 💚`,closed.length,'مقارنة نسبة الرفض: أوردرات ≥ ٨٠٠ مقابل < ٨٠٠ (نفس قاعدة تنبيه الأنماط)');
+  }
+  if(key==='rejtrend'){
+    const closed=orders.filter(o=>o.status==='delivered'||o.status==='returned');
+    const w1=closed.filter(o=>o.ts>=now-7*dayMs), w0=closed.filter(o=>o.ts<now-7*dayMs&&o.ts>=now-14*dayMs);
+    const rate=l=>{ const d=l.filter(o=>o.status==='delivered').length; return l.length?1-d/l.length:0; };
+    if(w1.length<5||w0.length<5) return R('محتاج ٥+ أوردرات مقفولة في كل أسبوع من الأسبوعين اللي فاتوا عشان أقارن الاتجاه.',closed.length,'نسبة الرفض الأسبوع ده مقابل اللي فات (من الأوردرات المقفولة)');
+    const r1=Math.round(rate(w1)*100), r0=Math.round(rate(w0)*100), d=r1-r0;
+    let dir=d>=5?`الرفض بيزيد ⚠️: ${r1}٪ الأسبوع ده مقابل ${r0}٪ اللي فات (+${d} نقطة). راجع سبب الرفض الأكتر والحملات الجديدة.`
+      :d<=-5?`الرفض بيقل 💚: ${r1}٪ الأسبوع ده مقابل ${r0}٪ اللي فات (${d} نقطة). كمّل على اللي بتعمله.`
+      :`الرفض ثابت تقريبًا: ${r1}٪ الأسبوع ده مقابل ${r0}٪ اللي فات.`;
+    return R(dir,closed.length,'نسبة الرفض = مرتجع ÷ (مسلَّم + مرتجع) لكل أسبوع من الأوردرات المقفولة');
+  }
   return {text:'سؤال غير معروف.',src:'',low:false};
 }
 let copilotQA=null;
@@ -2142,7 +2211,7 @@ function copilotCard(){
   ${c.ins.map(i=>`<div style="display:flex;align-items:center;gap:12px;padding:9px 0;border-top:1px solid var(--line)"><span style="font-size:18px">${i.icon}</span><span style="flex:1;font-size:14px;line-height:1.8">${esc(i.t)}</span><a class="btn small ghost" href="${i.go}">${i.btn}</a></div>`).join('')}
   <div style="margin-top:6px;border-top:1px solid var(--line);padding-top:10px">
     <div class="mut" style="font-size:11px;margin-bottom:6px">اسأل المساعد — أسئلة مقيدة بقواعد ثابتة، وكل إجابة بتقول مصدرها وحسابها:</div>
-    <div class="chips">${[['losing','أنهي منتج بيخسر؟'],['fastest','أنهي شركة شحن أسرع؟'],['campaign','أنهي حملة كسبانة؟'],['bestprod','أفضل منتج الشهر؟'],['cash','قد إيه فلوس عند شركات الشحن؟']].map(([k,q])=>`<button class="chip ${copilotQA&&copilotQA.k===k?'active':''}" onclick="askCopilot('${k}')">${q}</button>`).join('')}</div>
+    <div class="chips">${[['losing','أنهي منتج بيخسر؟'],['fastest','أنهي شركة شحن أسرع؟'],['campaign','أنهي حملة كسبانة؟'],['bestprod','أفضل منتج الشهر؟'],['cash','قد إيه فلوس عند شركات الشحن؟'],['verdict','إيه حكم حملاتي؟ 🟢🟡🔴'],['govcourier','أنهي شركة أحسن في محافظاتي؟'],['rejreason','إيه أكتر سبب رفض؟'],['bigrej','الأوردرات الكبيرة بتترفض أكتر؟'],['rejtrend','الرفض بيزيد ولا بيقل؟']].map(([k,q])=>`<button class="chip ${copilotQA&&copilotQA.k===k?'active':''}" onclick="askCopilot('${k}')">${q}</button>`).join('')}</div>
     ${copilotQA?`<div style="margin-top:8px;background:var(--panel2);border:1px solid var(--line);border-radius:10px;padding:10px 14px">
       <div style="font-size:14px;line-height:1.9">${esc(copilotQA.a.text)}</div>
       <div class="mut" style="font-size:11px;margin-top:6px">الحساب والمصدر: ${esc(copilotQA.a.src)}${copilotQA.a.low?' <span class="trust bad">ثقة منخفضة — بيانات قليلة</span>':''}</div>
