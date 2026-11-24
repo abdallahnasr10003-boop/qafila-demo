@@ -311,7 +311,7 @@ if(/AppData\/Local\/Temp/i.test(location.href)){
     </nav>
     <a class="factory hidden" id="factoryBtn" href="#" target="_blank" rel="noopener">🏭 مصنع الكرييتف ↗</a>
     <a href="#" id="lockBtn" class="hidden" onclick="lockNow();return false" style="display:flex;align-items:center;gap:10px;padding:11px 13px;border-radius:10px;margin-top:8px;color:var(--mut);font-size:14px;text-decoration:none;border:1px solid var(--line)">🔒 قفل اللوحة</a>
-    <div class="foot">قافلة v3.22 — نسخة محلية<br>بياناتك محفوظة على جهازك فقط</div>
+    <div class="foot">قافلة v3.24 — نسخة محلية<br>بياناتك محفوظة على جهازك فقط</div>
   </aside>
   <main>
     <div class="proto-note">🧪 <b>نسخة تجريبية محلية</b> — قافلة دلوقتي للتجربة والاختبار على جهازك فقط، ومش رابط شراء جاهز تبعته للعملاء. استخدم بيانات تجريبية فقط (مش أرقام عملاء حقيقيين) لحد ما يتبني سيرفر حقيقي مع مراجعة خصوصية واختبار على أكتر من جهاز.</div>
@@ -343,7 +343,7 @@ if(/AppData\/Local\/Temp/i.test(location.href)){
 "use strict";
 /* ================= البيانات ================= */
 const KEY='qafila.v1';
-const APP_VERSION='3.22';
+const APP_VERSION='3.24';
 const UPDATE_PAGE='https://files.instinct.com/iq2gaocdi8p9-v1';
 const STATUSES={
   new:'جديد', confirmed:'تم التأكيد', noanswer:'لا يرد',
@@ -761,6 +761,7 @@ function viewHome(){
     <div class="stat"><div class="t">عدد المنتجات</div><div class="n">${DB.products.length}</div></div>
   </div>
   ${copilotCard()}
+  ${healthCard()}
   ${tasksCard()}
   <div class="card">
     <h2>آخر الطلبات</h2>
@@ -2201,6 +2202,84 @@ function answerQuestion(key){
 let copilotQA=null;
 function askCopilot(k){ copilotQA={k,a:answerQuestion(k)}; route(); }
 
+/* ================= مؤشر صحة المتجر (v3.23 — Business Health Score) ================= */
+const HEALTH_W_DEFAULT={profit:30,delivery:25,growth:15,tracking:10,variety:10,cashspeed:10};
+function healthWeights(){ const w=Object.assign({},HEALTH_W_DEFAULT,DB.settings.healthWeights||{}); Object.keys(HEALTH_W_DEFAULT).forEach(k=>{ w[k]=Math.max(0,Number(w[k])||0); }); return w; }
+function healthScore(){
+  const w=healthWeights();
+  const dayMs=864e5, now=Date.now(), d14=now-14*dayMs, d7=now-7*dayMs;
+  const orders=DB.orders.filter(o=>!o.gen);
+  const clamp=(x)=>Math.max(0,Math.min(100,Math.round(x)));
+  const parts=[];
+  // 1) ربحية التسليم
+  const del14=orders.filter(o=>o.status==='delivered'&&o.ts>=d14);
+  if(del14.length>=3){
+    let net=0, rev=0;
+    del14.forEach(o=>{ const b=orderNet(o); if(b.net!=null){ net+=b.net; rev+=o.total; } });
+    orders.filter(o=>o.status==='returned'&&o.ts>=d14).forEach(o=>{ net-=orderFees(o).shipRet; });
+    if(rev>0){
+      const margin=Math.round(net/rev*1000)/10;
+      parts.push({k:'profit',label:'ربحية التسليم',w:w.profit,score:clamp(50+margin*1.5),detail:'هامش الصافي '+margin+'٪ على '+fmt(rev)+' مبيعات مسلَّمة آخر ١٤ يوم (بعد خصم رسوم المرتجعات). الدرجة = ٥٠ + الهامش × ١٫٥'});
+    } else parts.push({k:'profit',label:'ربحية التسليم',w:w.profit,score:null,detail:'المبيعات المسلَّمة بصافي محسوب صفر آخر ١٤ يوم'});
+  } else parts.push({k:'profit',label:'ربحية التسليم',w:w.profit,score:null,detail:'محتاج ٣+ توصيلات آخر ١٤ يوم'});
+  // 2) نسبة التسليم
+  const closed14=orders.filter(o=>(o.status==='delivered'||o.status==='returned')&&o.ts>=d14);
+  if(closed14.length>=5){
+    const rate=Math.round(closed14.filter(o=>o.status==='delivered').length/closed14.length*100);
+    parts.push({k:'delivery',label:'نسبة التسليم',w:w.delivery,score:rate,detail:rate+'٪ من '+closed14.length+' أوردر مقفول آخر ١٤ يوم اتسلّم. الدرجة = النسبة نفسها'});
+  } else parts.push({k:'delivery',label:'نسبة التسليم',w:w.delivery,score:null,detail:'محتاج ٥+ أوردرات مقفولة آخر ١٤ يوم'});
+  // 3) اتجاه النمو
+  const wkNet=(from,to)=>{ let n=0; orders.filter(o=>o.status==='delivered'&&o.ts>=from&&o.ts<to).forEach(o=>{ const b=orderNet(o); if(b.net!=null) n+=b.net; }); return Math.round(n*100)/100; };
+  const a=wkNet(d7,now+dayMs), bb=wkNet(d14,d7);
+  const delCount=orders.filter(o=>o.status==='delivered'&&o.ts>=d14).length;
+  if(delCount>=3){
+    const growth=bb>0?(a-bb)/bb:(a>0?1:0);
+    parts.push({k:'growth',label:'اتجاه النمو',w:w.growth,score:clamp(50+growth*100),detail:'صافي المسلَّم الأسبوع ده '+fmt(a)+' مقابل '+fmt(bb)+' اللي فات ('+(growth>=0?'+':'')+Math.round(growth*100)+'٪). الدرجة = ٥٠ + النمو × ١٠٠'});
+  } else parts.push({k:'growth',label:'اتجاه النمو',w:w.growth,score:null,detail:'محتاج ٣+ توصيلات في الأسبوعين اللي فاتوا'});
+  // 4) صحة التتبع
+  const au=auditTracking(14);
+  if(au.ordersCount>0){
+    const sc=clamp((1-au.missing.length/au.ordersCount)*100);
+    parts.push({k:'tracking',label:'صحة التتبع',w:w.tracking,score:sc,detail:au.missing.length+' من '+au.ordersCount+' أوردر بدون حدث Purchase في سجل الأحداث (آخر ١٤ يوم). الدرجة = نسبة الأوردرات المتتبعة'});
+  } else parts.push({k:'tracking',label:'صحة التتبع',w:w.tracking,score:null,detail:'مفيش أوردرات آخر ١٤ يوم للفحص'});
+  // 5) تنوع المنتجات الرابحة
+  const byP={};
+  del14.forEach(o=>{ const b=orderNet(o); if(b.net!=null) byP[o.product]=Math.round(((byP[o.product]||0)+b.net)*100)/100; });
+  const pos=Object.entries(byP).filter(([,v])=>v>0).sort((x,y)=>y[1]-x[1]);
+  if(pos.length===0) parts.push({k:'variety',label:'تنوع المنتجات الرابحة',w:w.variety,score:null,detail:'مفيش منتج رابح بصافي موجب آخر ١٤ يوم'});
+  else if(pos.length===1) parts.push({k:'variety',label:'تنوع المنتجات الرابحة',w:w.variety,score:40,detail:'منتج واحد بس رابح («'+pos[0][0]+'») — الاعتماد على منتج واحد خطر. منتج واحد = ٤٠ درجة'});
+  else {
+    const sum=pos.reduce((s2,[,v])=>s2+v,0);
+    const share=Math.round(pos[0][1]/sum*100);
+    parts.push({k:'variety',label:'تنوع المنتجات الرابحة',w:w.variety,score:clamp(100-share),detail:pos.length+' منتجات رابحة — أكبرهم («'+pos[0][0]+'») واخد '+share+'٪ من الصافي. الدرجة = ١٠٠ − حصة الأكبر'});
+  }
+  // 6) سرعة التحصيل
+  const st=orders.filter(o=>o.settled&&o.settledAt&&o.deliveredAt);
+  if(st.length>=3){
+    const avg=Math.round(st.reduce((s2,o)=>s2+(o.settledAt-o.deliveredAt),0)/st.length/dayMs*10)/10;
+    parts.push({k:'cashspeed',label:'سرعة التحصيل',w:w.cashspeed,score:avg<=7?100:clamp(100-(avg-7)*(100/23)),detail:'متوسط '+avg+' يوم من التسليم للتسوية ('+st.length+' أوردر متسوّى). أسبوع أو أقل = ١٠٠، وبينقص خطيًا لحد صفر عند ٣٠ يوم'});
+  } else parts.push({k:'cashspeed',label:'سرعة التحصيل',w:w.cashspeed,score:null,detail:'محتاج ٣+ أوردرات متسوّية بتواريخ تسليم وتسوية'});
+  const avail=parts.filter(p=>p.score!=null&&p.w>0);
+  const wsum=avail.reduce((s2,p)=>s2+p.w,0);
+  const score=wsum>0?Math.round(avail.reduce((s2,p)=>s2+p.score*p.w,0)/wsum):null;
+  return {score,parts,wsum};
+}
+function healthCard(){
+  const h=healthScore();
+  const color=h.score==null?'var(--mut)':h.score>=75?'var(--brand)':h.score>=50?'var(--brand2)':'var(--red)';
+  const word=h.score==null?'لسه مفيش بيانات كفاية':h.score>=75?'ممتاز':h.score>=50?'كويس':'محتاج انتباه';
+  return `<div class="card"><h2>مؤشر صحة المتجر ❤️</h2>
+  <div class="mut" style="font-size:11px;margin-bottom:10px">مؤشر استرشادي محسوب محليًا من بياناتك: متوسط مرجح لـ٦ مؤشرات بيلخّص أداء الفترة اللي فاتت — مش تنبؤ مؤكد بالمستقبل. الأوزان معلنة جنب كل مؤشر وقابلة للتعديل من <a href="#/settings">الإعدادات ← أوزان مؤشر الصحة</a>، وكل مؤشر بيوريك درجته وحسابه بالظبط.</div>
+  <div style="display:flex;align-items:center;gap:18px;margin-bottom:8px">
+    <div style="font-size:42px;font-weight:800;color:${color};min-width:110px">${h.score==null?'—':h.score+'<span style="font-size:16px;color:var(--mut)">/100</span>'}</div>
+    <div><div style="font-weight:800;color:${color}">${word}</div><div class="mut" style="font-size:12px">${h.wsum?('محسوب من مؤشرات وزنها '+h.wsum+' من 100'+(h.wsum<100?' — الباقي بياناته مش كفاية لسه':'')):'كل المؤشرات محتاجة بيانات أكتر'}</div></div>
+  </div>
+  <table>${h.parts.map(p=>`<tr><td style="width:34%">${p.label} <span class="mut" style="font-size:11px">(${p.w}٪)</span></td>
+    <td style="width:14%"><b style="color:${p.score==null?'var(--mut)':p.score>=75?'var(--brand)':p.score>=50?'var(--brand2)':'var(--red)'}">${p.score==null?'—':p.score}</b></td>
+    <td class="mut" style="font-size:12px">${p.score==null?'⏳ '+esc(p.detail):esc(p.detail)}</td></tr>`).join('')}</table>
+  </div>`;
+}
+
 function copilotCard(){
   const c=copilotData();
   if(!c.hasData) return '';
@@ -2421,6 +2500,19 @@ function viewSettings(){
     </div>
     <div class="mut" style="margin-top:12px;line-height:2">التحديث بضغطة واحدة: شغّل ملف <b>«Update-Qafila.bat»</b> (أو «تحديث-قافلة.bat») اللي جنب البرنامج في نفس الفولدر — بيتأكد من آخر نسخة، يعرضلك الجديد فيها، (رسالة ويندوز «ناشر غير معروف» عادية ومتوقعة — دوس Run) ياخد نسخة احتياطية من ملفات البرنامج، ويحدّث لوحده من غير ما تمس أي حاجة.<br>بياناتك (أوردرات ومنتجات وإعدادات) محفوظة في المتصفح نفسه، مش جوا ملفات البرنامج — يعني التحديث مبيقربش منها، ولأقصى أمان دوس «نسخة احتياطية» فوق قبل أي تحديث.<br>بصراحة كاملة: برنامج محلي على ويندوز ميقدرش يحدّث نفسه بصمت لوحده من غير سيرفر مدفوع شغال في الخلفية — عشان كده التحديث بيتم من ملف المحدّث بضغطة واحدة، وده أأمن وأثبت شكل مجاني.</div>
   </div>
+  <div class="card"><h2>أوزان مؤشر الصحة ❤️</h2>
+    <div class="mut" style="margin-bottom:8px">مؤشر صحة المتجر في الرئيسية بيتحسب بمتوسط مرجح من ٦ مؤشرات — عدّل الأوزان زي ما يناسب شغلك (المجموع أي رقم، بيتحسب نسبيًا).</div>
+    <div class="row">
+      <div><label>ربحية التسليم (افتراضي 30)</label><input id="s_hw_profit" type="number" min="0" value="${healthWeights().profit}"></div>
+      <div><label>نسبة التسليم (افتراضي 25)</label><input id="s_hw_delivery" type="number" min="0" value="${healthWeights().delivery}"></div>
+      <div><label>اتجاه النمو (افتراضي 15)</label><input id="s_hw_growth" type="number" min="0" value="${healthWeights().growth}"></div>
+    </div>
+    <div class="row">
+      <div><label>صحة التتبع (افتراضي 10)</label><input id="s_hw_tracking" type="number" min="0" value="${healthWeights().tracking}"></div>
+      <div><label>تنوع المنتجات الرابحة (افتراضي 10)</label><input id="s_hw_variety" type="number" min="0" value="${healthWeights().variety}"></div>
+      <div><label>سرعة التحصيل (افتراضي 10)</label><input id="s_hw_cashspeed" type="number" min="0" value="${healthWeights().cashspeed}"></div>
+    </div>
+  </div>
   <div class="card"><h2>النسخ الاحتياطي</h2>
     <div class="row" style="align-items:center">
       <button class="btn ghost" onclick="exportData()">⬇️ تصدير كل البيانات (JSON)</button>
@@ -2449,6 +2541,7 @@ function saveSettings(){
   DB.settings.orderAlertSound=document.getElementById('s_orderalert')?document.getElementById('s_orderalert').checked:true;
   DB.settings.backupEveryDays=Number(val('s_backupdays'));
   DB.settings.defaultShip=Number(val('s_ship'))||0;
+  DB.settings.healthWeights={profit:Number(val('s_hw_profit'))||0,delivery:Number(val('s_hw_delivery'))||0,growth:Number(val('s_hw_growth'))||0,tracking:Number(val('s_hw_tracking'))||0,variety:Number(val('s_hw_variety'))||0,cashspeed:Number(val('s_hw_cashspeed'))||0};
   DB.settings.govFees={};
   document.querySelectorAll('.govfee').forEach(i=>{ if(i.value!=='') DB.settings.govFees[i.dataset.gov]=Number(i.value); });
   save(); toast('تم حفظ الإعدادات ✅'); route();
