@@ -311,7 +311,7 @@ if(/AppData\/Local\/Temp/i.test(location.href)){
     </nav>
     <a class="factory hidden" id="factoryBtn" href="#" target="_blank" rel="noopener">🏭 مصنع الكرييتف ↗</a>
     <a href="#" id="lockBtn" class="hidden" onclick="lockNow();return false" style="display:flex;align-items:center;gap:10px;padding:11px 13px;border-radius:10px;margin-top:8px;color:var(--mut);font-size:14px;text-decoration:none;border:1px solid var(--line)">🔒 قفل اللوحة</a>
-    <div class="foot">قافلة v3.20 — نسخة محلية<br>بياناتك محفوظة على جهازك فقط</div>
+    <div class="foot">قافلة v3.21 — نسخة محلية<br>بياناتك محفوظة على جهازك فقط</div>
   </aside>
   <main>
     <div class="proto-note">🧪 <b>نسخة تجريبية محلية</b> — قافلة دلوقتي للتجربة والاختبار على جهازك فقط، ومش رابط شراء جاهز تبعته للعملاء. استخدم بيانات تجريبية فقط (مش أرقام عملاء حقيقيين) لحد ما يتبني سيرفر حقيقي مع مراجعة خصوصية واختبار على أكتر من جهاز.</div>
@@ -343,7 +343,7 @@ if(/AppData\/Local\/Temp/i.test(location.href)){
 "use strict";
 /* ================= البيانات ================= */
 const KEY='qafila.v1';
-const APP_VERSION='3.20';
+const APP_VERSION='3.21';
 const UPDATE_PAGE='https://files.instinct.com/iq2gaocdi8p9-v1';
 const STATUSES={
   new:'جديد', confirmed:'تم التأكيد', noanswer:'لا يرد',
@@ -704,7 +704,7 @@ function viewConfirm(){
   const list=[...DB.orders].reverse().filter(o=>o.status==='new');
   return `
   <div class="toolbar"><div><h1 class="page">طابور التأكيد 📞</h1><div class="sub">كل أوردر جديد بيستنى مكالمة أو رسالة تأكيد — اشتغل عليهم واحد واحد من هنا</div></div>
-  <div class="actions">${list.length?`<button class="btn ghost small" onclick="bulkSetFromConfirm()">✅ تأكيد الكل بعد المراجعة</button>`:''}</div></div>
+    <div class="actions">${list.length?`<button class="btn ghost small" onclick="bulkSetFromConfirm()">✅ تأكيد الكل بعد المراجعة</button>`:''}</div></div>
   ${list.length?list.map(o=>`
   <div class="card" style="display:flex;gap:14px;align-items:center;flex-wrap:wrap;margin-bottom:12px">
     <div style="flex:1;min-width:220px">
@@ -1816,13 +1816,18 @@ function viewProducts(){
     <tr><th></th><th>المنتج</th><th>التصنيف</th><th>سعر البيع</th><th>التكلفة</th><th>المخزون</th><th>صفحة الهبوط</th><th></th></tr>
     ${DB.products.map(p=>`<tr>
       <td style="font-size:26px">${p.img&&p.img.startsWith('http')?`<img src="${esc(p.img)}" style="width:38px;height:38px;border-radius:8px;object-fit:cover">`:esc(p.img||'📦')}</td>
-      <td><b>${esc(p.name)}</b></td>
+      <td><b>${esc(p.name)}</b>${p.draft?' <span class="trust mid" title="فيه تعديلات غير منشورة">مسودة ✏️</span>':''}</td>
       <td class="mut">${esc(p.cat||'—')}</td>
       <td>${fmt(p.price)}</td>
       <td class="mut">${p.cost?fmt(p.cost):'—'}</td>
       <td>${p.stock===null||p.stock===undefined?'—':p.stock===0?'<span class="trust bad">نفذ ⛔</span>':p.stock}</td>
       <td><button class="btn small ghost" onclick="openLanding('${p.id}')">فتح ↗</button>
           <button class="btn small ghost" onclick="copyLanding('${p.id}')">نسخ الرابط</button>
+          ${p.draft?`<div style="margin-top:5px;display:flex;gap:5px;flex-wrap:wrap">
+            <button class="btn small" onclick="publishDraft('${p.id}')">🚀 نشر المسودة</button>
+            <button class="btn small ghost" onclick="previewDraft('${p.id}')">👁 معاينة</button>
+            <button class="btn small danger ghost" onclick="discardDraft('${p.id}')">تجاهل</button>
+          </div>`:''}
           ${p.abTheme?`<div class="mut" style="font-size:11px;margin-top:4px;max-width:230px">${abLine(p)}</div>`:''}</td>
       <td style="white-space:nowrap">
         <button class="btn small ghost" onclick="openProductModal('${p.id}')">تعديل</button>
@@ -1833,7 +1838,8 @@ function viewProducts(){
   </div>`;
 }
 function openProductModal(id){
-  const p=id?DB.products.find(x=>x.id===id):null;
+  const p0=id?DB.products.find(x=>x.id===id):null;
+  const p=p0&&p0.draft?{...p0,...p0.draft}:p0; // التعديل بيكمّل على المسودة لو موجودة
   const cats=[...new Set(DB.products.map(x=>x.cat).filter(Boolean))];
   modal(`
     <h3>${p?'تعديل منتج':'منتج جديد'}</h3>
@@ -1886,11 +1892,36 @@ function openProductModal(id){
     <textarea id="f_reviews" rows="3" placeholder="أحمد م. | المنتج ممتاز والشحن وصل في يومين | 5">${esc((p?.reviews||[]).map(r=>r.name+' | '+r.text+' | '+(r.stars||5)).join('\n'))}</textarea>
     <label>أسئلة شائعة لصفحة الهبوط (سطر لكل سؤال: السؤال | الجواب — اختياري)</label>
     <textarea id="f_faq" rows="2" placeholder="الشحن بياخد قد إيه؟ | من 2 لـ 5 أيام عمل حسب المحافظة">${esc((p?.faq||[]).map(f=>f.q+' | '+f.a).join('\n'))}</textarea>
+    ${id?`<div class="mut" style="font-size:12px;margin-top:10px;line-height:1.8">✏️ ${p0&&p0.draft?'الحقول دي واخدة قيم <b>المسودة</b> الحالية، والتعديل بيكمّل عليها':'التعديل على منتج موجود بيتحفظ <b>كمسودة</b>'} — صفحة الهبوط الشغالة مش بتتغير لحد ما تدوس «نشر». التكلفة والمخزون والتصنيف بيتطبقوا فورًا.</div>`:''}
     <div class="actions">
-      <button class="btn" onclick="saveProduct('${id||''}')">حفظ</button>
+      <button class="btn" onclick="saveProduct('${id||''}')">${id?'حفظ كمسودة ✏️':'حفظ'}</button>
       <button class="btn ghost" onclick="closeModal()">إلغاء</button>
     </div>`);
 }
+/* ================= مسودة/نشر صفحات الهبوط (v3.21) ================= */
+const LANDING_FIELDS=['name','price','img','desc','hook','oldPrice','benefits','theme','countdownMin','qtyOffers','upsellId','upsellDisc','downsellId','abTheme','gallery','reviews','faq'];
+function pickLanding(d){ const o={}; LANDING_FIELDS.forEach(k=>{ o[k]=d[k]; }); return o; }
+function landingDiffers(p,d){ return LANDING_FIELDS.some(k=>JSON.stringify(p[k]??null)!==JSON.stringify(d[k]??null)); }
+function storeProductDraft(id,data){
+  const prod=DB.products.find(x=>x.id===id); if(!prod) return null;
+  // التشغيلية بتتطبق فورًا (التكلفة للحسابات والمخزون للندرة) — حقول الصفحة بتروح للمسودة
+  ['cost','stock','cat'].forEach(k=>{ prod[k]=data[k]; });
+  if(landingDiffers(prod,data)) prod.draft=pickLanding(data);
+  else delete prod.draft;
+  save(); return prod;
+}
+function publishDraft(id){
+  const p=DB.products.find(x=>x.id===id); if(!p||!p.draft) return;
+  Object.assign(p,p.draft); delete p.draft; save();
+  toast('اتنشرت التعديلات ✅ — صفحة الهبوط بقت بالنسخة الجديدة'); route();
+}
+function discardDraft(id){
+  const p=DB.products.find(x=>x.id===id); if(!p||!p.draft) return;
+  delete p.draft; save();
+  toast('اتشالت المسودة — الصفحة الشغالة فضلت زي ما هي'); route();
+}
+function previewDraft(id){ window.open(location.href.split('#')[0]+'#/p/'+encodeURIComponent(id)+'?draft=1','_blank'); }
+
 function saveProduct(id){
   const name=val('f_name').trim(), price=Number(val('f_price'));
   if(!name||!(price>0)){ toast('اكتب اسم المنتج وسعر صحيح'); return; }
@@ -1904,9 +1935,13 @@ function saveProduct(id){
     gallery:val('f_gallery').split('\n').map(x=>x.trim()).filter(x=>x.startsWith('http')),
     reviews:val('f_reviews').split('\n').map(l=>{const a=l.split('|').map(x=>x.trim());return a.length>=2?{name:a[0]||'عميل',text:a[1],stars:Number(a[2])||5}:null;}).filter(Boolean),
     faq:val('f_faq').split('\n').map(l=>{const a=l.split('|').map(x=>x.trim());return a.length>=2&&a[0]&&a[1]?{q:a[0],a:a.slice(1).join(' | ')}:null;}).filter(Boolean)};
-  if(id){ Object.assign(DB.products.find(x=>x.id===id),data); }
-  else{ DB.products.push({id:'p'+Date.now().toString(36),...data}); }
-  save(); closeModal(); toast('تم حفظ المنتج ✅'); route();
+  if(id){
+    const prod=storeProductDraft(id,data);
+    save(); closeModal();
+    toast(prod&&prod.draft?'اتحفظت كمسودة ✏️ — الصفحة الشغالة زي ما هي لحد ما تدوس «نشر» من المنتجات':'تم حفظ المنتج ✅');
+    route();
+  }
+  else{ DB.products.push({id:'p'+Date.now().toString(36),...data}); save(); closeModal(); toast('تم حفظ المنتج ✅'); route(); }
 }
 function delProduct(id){
   if(!confirm('حذف المنتج؟ الأوردرات القديمة هتفضل موجودة.')) return;
@@ -2601,8 +2636,11 @@ function showLanding(pid){
   el.classList.remove('hidden');
   window._utm=getUtm();
   clearInterval(_cdT);
-  const p=pid.startsWith('tpl:')?tmplProduct(pid.slice(4)):DB.products.find(x=>x.id===pid);
-  if(!p){ el.innerHTML=`<div class="thanks" style="background:#f6f3ec;min-height:100vh;color:#1c2333"><div class="check">😕</div><h1>الصفحة مش موجودة</h1><p>المنتج ده اتمسح أو الرابط غلط.</p></div>`; return; }
+  const p0=pid.startsWith('tpl:')?tmplProduct(pid.slice(4)):DB.products.find(x=>x.id===pid);
+  if(!p0){ el.innerHTML=`<div class="thanks" style="background:#f6f3ec;min-height:100vh;color:#1c2333"><div class="check">😕</div><h1>الصفحة مش موجودة</h1><p>المنتج ده اتمسح أو الرابط غلط.</p></div>`; return; }
+  const _isDraft=!pid.startsWith('tpl:')&&!!p0.draft&&new URLSearchParams(location.hash.split('?')[1]||'').get('draft')==='1';
+  const p=_isDraft?{...p0,...p0.draft}:p0;
+  window._lpDraft=_isDraft?p:null; // lpTotal بيقرأ من DB — في المعاينة لازم يقرأ المسودة
   let th=THEMES[p.theme]?p.theme:'classic';
   window._abVar=null;
   if(p.abTheme&&THEMES[p.abTheme]){
@@ -2616,6 +2654,7 @@ function showLanding(pid){
     if(abv==='B') th=p.abTheme;
   }
   el.className=''; el.classList.add('th-'+th);
+  if(_isDraft) setTimeout(()=>{ const b=document.createElement('div'); b.style.cssText='position:sticky;top:0;z-index:99;background:#3a2f14;color:#f5b73c;text-align:center;font-size:13px;font-weight:700;padding:8px 12px;font-family:inherit'; b.textContent='✏️ معاينة مسودة — التعديلات دي لسه مش منشورة على الصفحة الشغالة'; el.prepend(b); },0);
   const gallery=(p.gallery||[]).filter(Boolean);
   const main=(gallery.length&&gallery[0].startsWith('http'))?gallery[0]:(p.img&&p.img.startsWith('http')?p.img:null);
   const emoji=p.img&&!p.img.startsWith('http')?p.img:'📦';
@@ -2702,7 +2741,8 @@ function galSwap(el,pid){
   el.classList.add('on');
 }
 function lpTotal(pid){
-  const p=pid.startsWith('tpl:')?tmplProduct(pid.slice(4)):DB.products.find(x=>x.id===pid); if(!p) return;
+  let p=pid.startsWith('tpl:')?tmplProduct(pid.slice(4)):DB.products.find(x=>x.id===pid); if(!p) return;
+  if(window._lpDraft&&!pid.startsWith('tpl:')&&window._lpDraft.id===p.id) p=window._lpDraft;
   const gov=document.getElementById('lp_gov')?.value||'';
   const qty=Number(document.getElementById('lp_qty')?.value||1);
   const base=totalFor(p,qty);
@@ -2839,4 +2879,4 @@ document.addEventListener('keydown',e=>{ if(e.key==='Escape') closeModal(); });
 route();
 </script>
 </body>
-</html>
+  </html>
