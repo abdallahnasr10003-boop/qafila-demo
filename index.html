@@ -309,9 +309,10 @@ if(/AppData\/Local\/Temp/i.test(location.href)){
       <a href="#/settings" data-route="/settings">⚙️ الإعدادات</a>
       <a href="#/system" data-route="/system">🩺 النظام</a>
     </nav>
+    <a href="#" id="gsBtn" onclick="openGlobalSearch();return false" style="display:flex;align-items:center;justify-content:space-between;gap:10px;margin:8px 0;padding:9px 13px;border:1px dashed var(--line);border-radius:10px;color:var(--mut);font-size:13px;text-decoration:none">🔎 بحث سريع <span style="font-size:11px;direction:ltr">Ctrl+K</span></a>
     <a class="factory hidden" id="factoryBtn" href="#" target="_blank" rel="noopener">🏭 مصنع الكرييتف ↗</a>
     <a href="#" id="lockBtn" class="hidden" onclick="lockNow();return false" style="display:flex;align-items:center;gap:10px;padding:11px 13px;border-radius:10px;margin-top:8px;color:var(--mut);font-size:14px;text-decoration:none;border:1px solid var(--line)">🔒 قفل اللوحة</a>
-    <div class="foot">قافلة v3.24 — نسخة محلية<br>بياناتك محفوظة على جهازك فقط</div>
+    <div class="foot">قافلة v3.25 — نسخة محلية<br>بياناتك محفوظة على جهازك فقط</div>
   </aside>
   <main>
     <div class="proto-note">🧪 <b>نسخة تجريبية محلية</b> — قافلة دلوقتي للتجربة والاختبار على جهازك فقط، ومش رابط شراء جاهز تبعته للعملاء. استخدم بيانات تجريبية فقط (مش أرقام عملاء حقيقيين) لحد ما يتبني سيرفر حقيقي مع مراجعة خصوصية واختبار على أكتر من جهاز.</div>
@@ -343,7 +344,7 @@ if(/AppData\/Local\/Temp/i.test(location.href)){
 "use strict";
 /* ================= البيانات ================= */
 const KEY='qafila.v1';
-const APP_VERSION='3.24';
+const APP_VERSION='3.25';
 const UPDATE_PAGE='https://files.instinct.com/iq2gaocdi8p9-v1';
 const STATUSES={
   new:'جديد', confirmed:'تم التأكيد', noanswer:'لا يرد',
@@ -3027,6 +3028,59 @@ function declineUpsell(oid,srcId){
   slot.innerHTML=down?upsellCard(oid,srcId,down,src.upsellDisc||25,'down'):'';
 }
 
+/* ================= بحث سريع Ctrl+K (v3.25) ================= */
+const GS_PAGES=[['/','الرئيسية 📊'],['/orders','الطلبات 🧾'],['/confirm','طابور التأكيد 📞'],['/leads','السلة المتروكة 🧺'],['/ads','الإعلانات 📣'],['/analytics','التحليلات 📈'],['/recon','التحصيل 💸'],['/customers','العملاء 👥'],['/tracking','التتبع 🎯'],['/products','المنتجات 📦'],['/templates','القوالب 🧩'],['/settings','الإعدادات ⚙️'],['/system','النظام 🩺']];
+function gsNorm(x){
+  return String(x==null?'':x).toLowerCase()
+    .replace(/[\u064B-\u0652\u0640]/g,'')
+    .replace(/[أإآ]/g,'ا').replace(/ى/g,'ي').replace(/ة/g,'ه')
+    .replace(/[٠-٩]/g,d=>String(d.charCodeAt(0)-1632))
+    .replace(/[۰-۹]/g,d=>String(d.charCodeAt(0)-1776)).trim();
+}
+function gsSearch(q){
+  const n=gsNorm(q); if(!n) return [];
+  const words=n.split(/\s+/).filter(Boolean);
+  const hit=(hay)=>{ const h=gsNorm(hay); return words.every(w=>h.includes(w)); };
+  const out=[];
+  GS_PAGES.forEach(([r,l])=>{ if(hit(l)) out.push({type:'page',label:l,sub:'صفحة',route:r}); });
+  DB.products.filter(p=>hit(p.name+' '+(p.category||''))).slice(0,4).forEach(p=>out.push({type:'product',label:p.name,sub:'منتج — '+fmt(p.price),id:p.id}));
+  const ords=DB.orders.filter(o=>!o.gen&&hit([o.id,o.name,o.phone,o.product,o.gov].join(' '))).sort((a,b)=>b.ts-a.ts);
+  ords.slice(0,8).forEach(o=>out.push({type:'order',label:o.id+' — '+o.name,sub:(o.product||'')+' · '+(o.phone||'')+' · '+(o.gov||''),id:o.id}));
+  if(ords.length>8) out.push({type:'more',label:'+'+(ords.length-8)+' أوردر كمان — ضيّق البحث',sub:'',route:null});
+  return out;
+}
+let gsSel=0, gsList=[];
+function openGlobalSearch(){
+  if(isLocked()||/^#\/p\//.test(location.hash)||location.hash==='#/track') return;
+  if(document.getElementById('gsRoot')) return;
+  const d=document.createElement('div'); d.id='gsRoot';
+  d.innerHTML='<div class="overlay" style="z-index:120" onclick="if(event.target===this)closeGlobalSearch()"><div class="modal" style="max-width:560px"><input id="gsInput" autocomplete="off" placeholder="ابحث برقم أوردر أو اسم أو تليفون أو منتج أو صفحة…" oninput="gsRender()" style="width:100%"><div id="gsRes" style="margin-top:10px"></div><div class="mut" style="font-size:11px;margin-top:8px">↑↓ للتنقل · Enter للفتح · Esc للإغلاق — البحث محلي على بياناتك فقط</div></div></div>';
+  document.body.appendChild(d);
+  gsRender(); document.getElementById('gsInput').focus();
+}
+function closeGlobalSearch(){ const d=document.getElementById('gsRoot'); if(d) d.remove(); }
+function gsRender(){
+  gsList=gsSearch(val('gsInput')); gsSel=0;
+  const q=val('gsInput').trim();
+  document.getElementById('gsRes').innerHTML=!q?'<div class="mut">اكتب أي حاجة تدور عليها</div>':!gsList.length?'<div class="mut">مفيش نتائج لـ«'+esc(q)+'»</div>':gsList.map((r,i)=>'<div class="gsrow" data-i="'+i+'" onclick="gsOpen('+i+')" style="padding:9px 11px;border-radius:9px;cursor:pointer;display:flex;justify-content:space-between;gap:10px;'+(i===0?'background:var(--line)':'')+'"><b>'+esc(r.label)+'</b><span class="mut" style="font-size:12px">'+esc(r.sub)+'</span></div>').join('');
+}
+function gsMove(d){ if(!gsList.length) return; gsSel=(gsSel+d+gsList.length)%gsList.length; document.querySelectorAll('#gsRes .gsrow').forEach((el,i)=>{ el.style.background=i===gsSel?'var(--line)':''; if(i===gsSel) el.scrollIntoView({block:'nearest'}); }); }
+function gsOpen(i){
+  const r=gsList[i==null?gsSel:i]; if(!r||r.type==='more') return;
+  closeGlobalSearch();
+  if(r.type==='page'){ location.hash='#'+r.route; }
+  else if(r.type==='order'){ if(location.hash!=='#/orders') location.hash='#/orders'; setTimeout(()=>openOrderModal(r.id),30); }
+  else if(r.type==='product'){ if(location.hash!=='#/products') location.hash='#/products'; setTimeout(()=>openProductModal(r.id),30); }
+}
+document.addEventListener('keydown',e=>{
+  if((e.ctrlKey||e.metaKey)&&e.key.toLowerCase()==='k'){ e.preventDefault(); if(document.getElementById('gsRoot')) closeGlobalSearch(); else openGlobalSearch(); return; }
+  if(!document.getElementById('gsRoot')) return;
+  if(e.key==='Escape'){ closeGlobalSearch(); }
+  else if(e.key==='ArrowDown'){ e.preventDefault(); gsMove(1); }
+  else if(e.key==='ArrowUp'){ e.preventDefault(); gsMove(-1); }
+  else if(e.key==='Enter'){ e.preventDefault(); gsOpen(); }
+});
+
 /* ================= أدوات ================= */
 function val(id){ const el=document.getElementById(id); return el?el.value:''; }
 function modal(html){ document.getElementById('modalRoot').innerHTML=`<div class="overlay" onclick="if(event.target===this)closeModal()"><div class="modal">${html}</div></div>`; }
@@ -3041,4 +3095,4 @@ document.addEventListener('keydown',e=>{ if(e.key==='Escape') closeModal(); });
 route();
 </script>
 </body>
-  </html>
+      </html>
