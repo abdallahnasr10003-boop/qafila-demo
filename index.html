@@ -312,7 +312,7 @@ if(/AppData\/Local\/Temp/i.test(location.href)){
     <a href="#" id="gsBtn" onclick="openGlobalSearch();return false" style="display:flex;align-items:center;justify-content:space-between;gap:10px;margin:8px 0;padding:9px 13px;border:1px dashed var(--line);border-radius:10px;color:var(--mut);font-size:13px;text-decoration:none">🔎 بحث سريع <span style="font-size:11px;direction:ltr">Ctrl+K</span></a>
     <a class="factory hidden" id="factoryBtn" href="#" target="_blank" rel="noopener">🏭 مصنع الكرييتف ↗</a>
     <a href="#" id="lockBtn" class="hidden" onclick="lockNow();return false" style="display:flex;align-items:center;gap:10px;padding:11px 13px;border-radius:10px;margin-top:8px;color:var(--mut);font-size:14px;text-decoration:none;border:1px solid var(--line)">🔒 قفل اللوحة</a>
-    <div class="foot">قافلة v3.25 — نسخة محلية<br>بياناتك محفوظة على جهازك فقط</div>
+    <div class="foot">قافلة v3.26 — نسخة محلية<br>بياناتك محفوظة على جهازك فقط</div>
   </aside>
   <main>
     <div class="proto-note">🧪 <b>نسخة تجريبية محلية</b> — قافلة دلوقتي للتجربة والاختبار على جهازك فقط، ومش رابط شراء جاهز تبعته للعملاء. استخدم بيانات تجريبية فقط (مش أرقام عملاء حقيقيين) لحد ما يتبني سيرفر حقيقي مع مراجعة خصوصية واختبار على أكتر من جهاز.</div>
@@ -344,7 +344,7 @@ if(/AppData\/Local\/Temp/i.test(location.href)){
 "use strict";
 /* ================= البيانات ================= */
 const KEY='qafila.v1';
-const APP_VERSION='3.25';
+const APP_VERSION='3.26';
 const UPDATE_PAGE='https://files.instinct.com/iq2gaocdi8p9-v1';
 const STATUSES={
   new:'جديد', confirmed:'تم التأكيد', noanswer:'لا يرد',
@@ -683,7 +683,7 @@ function route(){
   if(DB.settings.factoryUrl){ fb.classList.remove('hidden'); fb.href=DB.settings.factoryUrl; }
   else fb.classList.add('hidden');
   const v=document.getElementById('view');
-  if(h==='/') v.innerHTML=viewHome();
+  if(h==='/'){ try{ autoApply(); }catch(e){} v.innerHTML=viewHome(); }
   else if(h==='/system') v.innerHTML=viewSystem();
   else if(h==='/orders') v.innerHTML=viewOrders();
   else if(h==='/leads') v.innerHTML=viewLeads();
@@ -763,6 +763,7 @@ function viewHome(){
   </div>
   ${copilotCard()}
   ${healthCard()}
+  ${automationCard()}
   ${tasksCard()}
   <div class="card">
     <h2>آخر الطلبات</h2>
@@ -795,6 +796,7 @@ function viewOrders(){
     <button class="btn small ghost" onclick="closingReport()">📒 تقفيلة اليوم</button>
     <button class="btn small ghost" onclick="weeklyReport()">📊 تقرير الأسبوع</button>
     <button class="btn ghost" onclick="exportOrdersCSV()">⬇️ CSV</button>
+    <button class="btn ghost" onclick="openImportCSV()">⬆️ استيراد CSV</button>
   </div>
   <div class="card">
   ${list.length?`<table>
@@ -2501,6 +2503,7 @@ function viewSettings(){
     </div>
     <div class="mut" style="margin-top:12px;line-height:2">التحديث بضغطة واحدة: شغّل ملف <b>«Update-Qafila.bat»</b> (أو «تحديث-قافلة.bat») اللي جنب البرنامج في نفس الفولدر — بيتأكد من آخر نسخة، يعرضلك الجديد فيها، (رسالة ويندوز «ناشر غير معروف» عادية ومتوقعة — دوس Run) ياخد نسخة احتياطية من ملفات البرنامج، ويحدّث لوحده من غير ما تمس أي حاجة.<br>بياناتك (أوردرات ومنتجات وإعدادات) محفوظة في المتصفح نفسه، مش جوا ملفات البرنامج — يعني التحديث مبيقربش منها، ولأقصى أمان دوس «نسخة احتياطية» فوق قبل أي تحديث.<br>بصراحة كاملة: برنامج محلي على ويندوز ميقدرش يحدّث نفسه بصمت لوحده من غير سيرفر مدفوع شغال في الخلفية — عشان كده التحديث بيتم من ملف المحدّث بضغطة واحدة، وده أأمن وأثبت شكل مجاني.</div>
   </div>
+  ${automationSettingsCard()}
   <div class="card"><h2>أوزان مؤشر الصحة ❤️</h2>
     <div class="mut" style="margin-bottom:8px">مؤشر صحة المتجر في الرئيسية بيتحسب بمتوسط مرجح من ٦ مؤشرات — عدّل الأوزان زي ما يناسب شغلك (المجموع أي رقم، بيتحسب نسبيًا).</div>
     <div class="row">
@@ -2542,6 +2545,7 @@ function saveSettings(){
   DB.settings.orderAlertSound=document.getElementById('s_orderalert')?document.getElementById('s_orderalert').checked:true;
   DB.settings.backupEveryDays=Number(val('s_backupdays'));
   DB.settings.defaultShip=Number(val('s_ship'))||0;
+  autoSaveSettings();
   DB.settings.healthWeights={profit:Number(val('s_hw_profit'))||0,delivery:Number(val('s_hw_delivery'))||0,growth:Number(val('s_hw_growth'))||0,tracking:Number(val('s_hw_tracking'))||0,variety:Number(val('s_hw_variety'))||0,cashspeed:Number(val('s_hw_cashspeed'))||0};
   DB.settings.govFees={};
   document.querySelectorAll('.govfee').forEach(i=>{ if(i.value!=='') DB.settings.govFees[i.dataset.gov]=Number(i.value); });
@@ -3081,6 +3085,138 @@ document.addEventListener('keydown',e=>{
   else if(e.key==='Enter'){ e.preventDefault(); gsOpen(); }
 });
 
+/* ================= أتمتة القواعد المحلية (v3.26) ================= */
+const AUTO_DEFAULT={stale:{on:true,hours:4},vip:{on:true,min:2000},reject:{on:true,pct:30,min:5},stock:{on:true,min:5},repeat:{on:true,times:2}};
+function autoCfg(){ const c=DB.settings.automation||{}; const o={}; Object.keys(AUTO_DEFAULT).forEach(k=>{ o[k]=Object.assign({},AUTO_DEFAULT[k],c[k]||{}); }); return o; }
+function autoApply(){
+  const c=autoCfg(); let changed=0;
+  if(c.vip.on){
+    DB.orders.filter(o=>!o.gen&&o.status==='new'&&Number(o.total)>=c.vip.min&&!(o.flags||[]).includes('VIP')).forEach(o=>{
+      o.flags=o.flags||[]; o.flags.push('VIP');
+      DB.autoLog=DB.autoLog||[]; DB.autoLog.unshift({at:Date.now(),rule:'vip',text:'وسم VIP على '+o.id+' (قيمته '+fmt(o.total)+' ≥ '+fmt(c.vip.min)+')'}); changed++;
+    });
+  }
+  if(DB.autoLog&&DB.autoLog.length>60) DB.autoLog.length=60;
+  if(changed) save();
+  return changed;
+}
+function autoFindings(){
+  const c=autoCfg(), now=Date.now(), out=[], real=DB.orders.filter(o=>!o.gen);
+  if(c.stale.on){
+    const l=real.filter(o=>o.status==='new'&&now-o.ts>c.stale.hours*36e5);
+    if(l.length) out.push({rule:'stale',title:l.length+' أوردر جديد عدّى '+c.stale.hours+' ساعات من غير تأكيد — اتصل بيهم الأول',items:l.slice(0,5).map(o=>o.id+' — '+o.name),go:'#/confirm',btn:'طابور التأكيد'});
+  }
+  if(c.reject.on){
+    const d7=now-7*864e5, by={};
+    real.filter(o=>(o.status==='delivered'||o.status==='returned')&&o.ts>=d7).forEach(o=>{ const b=by[o.product]=by[o.product]||{t:0,r:0}; b.t++; if(o.status==='returned') b.r++; });
+    const items=Object.entries(by).filter(([,b])=>b.t>=c.reject.min&&b.r/b.t*100>c.reject.pct).map(([p,b])=>'«'+p+'» رفض '+Math.round(b.r/b.t*100)+'٪ ('+b.r+' من '+b.t+') آخر ٧ أيام — راجع إعلانه قبل ما تزوّد الصرف');
+    if(items.length) out.push({rule:'reject',title:'منتجات نسبة رفضها أعلى من '+c.reject.pct+'٪',items,go:'#/analytics',btn:'التحليلات'});
+  }
+  if(c.stock.on){
+    const l=DB.products.filter(p=>p.stock!=null&&p.stock<c.stock.min);
+    if(l.length) out.push({rule:'stock',title:'مخزون أقل من '+c.stock.min+' — فكّر توقف الإعلان أو تزوّد المخزون',items:l.map(p=>'«'+p.name+'» باقي '+p.stock),go:'#/products',btn:'المنتجات'});
+  }
+  if(c.repeat.on){
+    const bl=new Set((DB.settings.blacklist||[]).map(normPhone)), by={};
+    real.filter(o=>o.status==='returned').forEach(o=>{ const p=normPhone(o.phone); if(!p) return; const b=by[p]=by[p]||{n:0,name:o.name}; b.n++; });
+    const items=Object.entries(by).filter(([p,b])=>b.n>=c.repeat.times&&!bl.has(p)).map(([p,b])=>b.name+' ('+p+') رجّع '+b.n+' مرات');
+    if(items.length) out.push({rule:'repeat',title:'عملاء رجّعوا '+c.repeat.times+' مرات أو أكتر — راجعهم يدويًا قبل القائمة السوداء',items,go:'#/settings',btn:'القائمة السوداء'});
+  }
+  return out;
+}
+function autoRunNow(){ const n=autoApply(); toast(n?'اتنفّذ '+n+' إجراء — شوف السجل':'مفيش إجراءات جديدة'); route(); }
+function automationCard(){
+  const f=autoFindings(), log=(DB.autoLog||[]).slice(0,5);
+  return `<div class="card"><h2>الأتمتة المحلية</h2>
+  <div class="mut" style="font-size:11px;margin-bottom:10px">قواعد بسيطة بتتراجع على بياناتك لما تفتح البرنامج أو تدوس «شغّل دلوقتي» — مفيش سيرفر شغال في الخلفية. الأتمتة بتقترح بس: الإجراء الوحيد اللي بتنفذه تلقائيًا هو وسم VIP، ومبتحذفش ولا تحظر حاجة. القواعد وأرقامها من <a href="#/settings">الإعدادات</a>.</div>
+  ${f.length?f.map(x=>`<div style="padding:9px 0;border-bottom:1px solid var(--line)"><div style="display:flex;justify-content:space-between;gap:10px;align-items:center"><b>${esc(x.title)}</b><a class="btn small ghost" href="${x.go}">${x.btn}</a></div><div class="mut" style="font-size:12px;margin-top:4px">${x.items.map(esc).join(' · ')}</div></div>`).join(''):'<div class="mut">مفيش حاجة تستدعي انتباهك دلوقتي من القواعد المفعّلة.</div>'}
+  <div style="margin-top:10px;display:flex;gap:10px;align-items:center"><button class="btn small" onclick="autoRunNow()">شغّل دلوقتي</button><span class="mut" style="font-size:12px">${log.length?'آخر إجراءات: '+log.map(l=>esc(l.text)).join(' | '):'لسه مفيش إجراءات اتنفذت'}</span></div>
+  </div>`;
+}
+function automationSettingsCard(){
+  const c=autoCfg(), ck=(id,on)=>`<input type="checkbox" id="${id}" ${on?'checked':''} style="width:auto">`;
+  return `<div class="card"><h2>قواعد الأتمتة</h2>
+  <div class="mut" style="margin-bottom:8px">فعّل أو عطّل كل قاعدة وظبط رقمها. الأتمتة بتقترح بس ومبتحذفش ولا تحظر.</div>
+  <div class="row" style="align-items:end"><div>${ck('au_stale_on',c.stale.on)} أوردر جديد من غير تأكيد</div><div><label>بعد كام ساعة</label><input id="au_stale_h" type="number" min="1" value="${c.stale.hours}"></div></div>
+  <div class="row" style="align-items:end"><div>${ck('au_vip_on',c.vip.on)} وسم VIP تلقائي للأوردر الكبير</div><div><label>قيمته من</label><input id="au_vip_min" type="number" min="1" value="${c.vip.min}"></div></div>
+  <div class="row" style="align-items:end"><div>${ck('au_rej_on',c.reject.on)} تنبيه رفض منتج مرتفع (٧ أيام)</div><div><label>نسبة أعلى من ٪</label><input id="au_rej_pct" type="number" min="1" value="${c.reject.pct}"></div><div><label>حد أدنى أوردرات</label><input id="au_rej_min" type="number" min="1" value="${c.reject.min}"></div></div>
+  <div class="row" style="align-items:end"><div>${ck('au_stk_on',c.stock.on)} تنبيه مخزون قليل</div><div><label>أقل من</label><input id="au_stk_min" type="number" min="1" value="${c.stock.min}"></div></div>
+  <div class="row" style="align-items:end"><div>${ck('au_rep_on',c.repeat.on)} عميل مرجّع متكرر</div><div><label>عدد المرتجعات</label><input id="au_rep_n" type="number" min="2" value="${c.repeat.times}"></div></div>
+  </div>`;
+}
+function autoSaveSettings(){
+  const n=(id,d)=>Math.max(1,Number(val(id))||d), on=id=>!!(document.getElementById(id)&&document.getElementById(id).checked);
+  DB.settings.automation={stale:{on:on('au_stale_on'),hours:n('au_stale_h',4)},vip:{on:on('au_vip_on'),min:n('au_vip_min',2000)},reject:{on:on('au_rej_on'),pct:n('au_rej_pct',30),min:n('au_rej_min',5)},stock:{on:on('au_stk_on'),min:n('au_stk_min',5)},repeat:{on:on('au_rep_on'),times:Math.max(2,n('au_rep_n',2))}};
+}
+
+/* ================= استيراد أوردرات من CSV/إكسل (v3.26) ================= */
+const CSV_ALIASES={name:['الاسم','اسم العميل','name','customer'],phone:['التليفون','الموبايل','الهاتف','رقم التليفون','phone','mobile'],gov:['المحافظة','gov','city','governorate'],address:['العنوان','address'],product:['المنتج','product','item'],qty:['الكمية','qty','quantity'],total:['الإجمالي','الاجمالي','المبلغ','total','amount','price'],ship:['الشحن','ship','shipping'],status:['الحالة','status'],date:['التاريخ','date']};
+function csvAr2En(s){ return String(s==null?'':s).replace(/[٠-٩]/g,d=>String(d.charCodeAt(0)-1632)).replace(/[۰-۹]/g,d=>String(d.charCodeAt(0)-1776)); }
+function csvParse(text){
+  text=String(text||'').replace(/^\ufeff/,'');
+  const first=text.split(/\r?\n/)[0]||'';
+  const delim=[',',';','\t'].map(d=>[d,first.split(d).length]).sort((a,b)=>b[1]-a[1])[0][0];
+  const rows=[]; let row=[], cur='', q=false;
+  for(let i=0;i<text.length;i++){
+    const ch=text[i];
+    if(q){ if(ch==='"'){ if(text[i+1]==='"'){ cur+='"'; i++; } else q=false; } else cur+=ch; }
+    else if(ch==='"') q=true;
+    else if(ch===delim){ row.push(cur); cur=''; }
+    else if(ch==='\n'||ch==='\r'){ if(ch==='\r'&&text[i+1]==='\n') i++; row.push(cur); cur=''; if(row.some(x=>x.trim()!=='')) rows.push(row); row=[]; }
+    else cur+=ch;
+  }
+  row.push(cur); if(row.some(x=>x.trim()!=='')) rows.push(row);
+  return rows;
+}
+function csvImportPlan(text){
+  const rows=csvParse(text); const plan={orders:[],errors:[],total:Math.max(0,rows.length-1)};
+  if(rows.length<2){ plan.errors.push({line:1,reason:'الملف فاضي أو من غير صفوف بيانات'}); return plan; }
+  const head=rows[0].map(h=>h.trim().toLowerCase()), idx={};
+  Object.entries(CSV_ALIASES).forEach(([k,al])=>{ const i=head.findIndex(h=>al.map(a=>a.toLowerCase()).includes(h)); if(i>=0) idx[k]=i; });
+  const miss=['name','phone','product'].filter(k=>idx[k]==null);
+  if(miss.length){ plan.errors.push({line:1,reason:'أعمدة ناقصة في الصف الأول: '+miss.map(k=>CSV_ALIASES[k][0]).join('، ')}); return plan; }
+  const st={}; Object.entries(STATUSES).forEach(([k,v])=>{ st[v]=k; st[k]=k; });
+  const seen=new Set(DB.orders.map(o=>normPhone(o.phone)+'|'+o.product+'|'+o.total));
+  for(let r=1;r<rows.length;r++){
+    const g=k=>idx[k]==null?'':String(rows[r][idx[k]]==null?'':rows[r][idx[k]]).trim();
+    const line=r+1, name=g('name'), phone=normPhone(csvAr2En(g('phone'))), product=g('product');
+    if(!name){ plan.errors.push({line,reason:'الاسم ناقص'}); continue; }
+    if(!validPhone(phone)){ plan.errors.push({line,reason:'تليفون غير صحيح ('+g('phone')+')'}); continue; }
+    if(!product){ plan.errors.push({line,reason:'المنتج ناقص'}); continue; }
+    const qty=Math.max(1,Math.round(Number(csvAr2En(g('qty')))||1));
+    let total=Number(csvAr2En(g('total')).replace(/[^\d.]/g,''));
+    if(!(total>0)){ const p=DB.products.find(x=>x.name===product); total=p?p.price*qty:0; }
+    if(!(total>0)){ plan.errors.push({line,reason:'الإجمالي ناقص ومفيش سعر للمنتج'}); continue; }
+    const key=phone+'|'+product+'|'+total;
+    if(seen.has(key)){ plan.errors.push({line,reason:'مكرر (نفس التليفون والمنتج والمبلغ)'}); continue; }
+    seen.add(key);
+    const gov=g('gov'), shipRaw=csvAr2En(g('ship')), status=st[g('status')]||'new';
+    const dt=Date.parse(csvAr2En(g('date'))); const ts=isNaN(dt)?Date.now():dt;
+    plan.orders.push({name,phone,gov,address:g('address'),product,qty,total,ship:shipRaw!==''&&!isNaN(Number(shipRaw))?Number(shipRaw):shipFee(gov),status,courier:'',ts,date:new Date(ts).toISOString(),flags:['مستورد'],utm:{},calls:[],notes:'',imported:true});
+  }
+  return plan;
+}
+function openImportCSV(){
+  modal(`<h3>استيراد أوردرات من CSV / إكسل</h3>
+  <div class="mut" style="margin-bottom:8px;line-height:1.8">الصق محتوى الملف أو اختاره. الصف الأول لازم يكون عناوين الأعمدة: <b>الاسم، التليفون، المنتج</b> (إجباري) + المحافظة، العنوان، الكمية، الإجمالي، الشحن، الحالة، التاريخ (اختياري). بيتجاهل المكرر وبيرفض التليفونات الغلط ويقولك السبب.</div>
+  <input type="file" accept=".csv,.txt" onchange="csvPickFile(this)" style="margin-bottom:8px">
+  <textarea id="imp_txt" rows="7" placeholder="الاسم,التليفون,المحافظة,المنتج,الكمية,الإجمالي" style="width:100%"></textarea>
+  <div id="imp_prev" class="mut" style="margin:8px 0"></div>
+  <div style="display:flex;gap:10px"><button class="btn ghost" onclick="csvPreview()">معاينة</button><button class="btn" onclick="csvApply()">استيراد</button><button class="btn ghost" onclick="closeModal()">إلغاء</button></div>`);
+}
+function csvPickFile(inp){ const f=inp.files[0]; if(!f) return; const r=new FileReader(); r.onload=()=>{ document.getElementById('imp_txt').value=r.result; csvPreview(); }; r.readAsText(f,'utf-8'); }
+function csvPreview(){
+  const p=csvImportPlan(val('imp_txt'));
+  document.getElementById('imp_prev').innerHTML='<b>'+p.orders.length+'</b> أوردر جاهز للاستيراد من '+p.total+' صف'+(p.errors.length?'<br>'+p.errors.slice(0,8).map(e=>'صف '+e.line+': '+esc(e.reason)).join('<br>')+(p.errors.length>8?'<br>+'+(p.errors.length-8)+' أخطاء كمان':''):'');
+  return p;
+}
+function csvApply(){
+  const p=csvPreview();
+  if(!p.orders.length){ toast('مفيش أوردرات صالحة للاستيراد',true); return; }
+  p.orders.forEach(o=>{ o.id=newOrderId(); if(o.status==='delivered') o.deliveredAt=o.ts; DB.orders.push(o); });
+  save(); closeModal(); toast('اتستورد '+p.orders.length+' أوردر'+(p.errors.length?' — وتجاهلنا '+p.errors.length+' صف':'')); route();
+}
+
 /* ================= أدوات ================= */
 function val(id){ const el=document.getElementById(id); return el?el.value:''; }
 function modal(html){ document.getElementById('modalRoot').innerHTML=`<div class="overlay" onclick="if(event.target===this)closeModal()"><div class="modal">${html}</div></div>`; }
@@ -3095,4 +3231,4 @@ document.addEventListener('keydown',e=>{ if(e.key==='Escape') closeModal(); });
 route();
 </script>
 </body>
-      </html>
+</html>
